@@ -7,6 +7,8 @@ import { FilmGlyph, PhotoGlyph, PlayIcon } from '../icons'
 
 const LAZY_MARGIN = '320px'
 const PREVIEW_SEEK_FRAGMENT = '#t=0.5'
+const SNAPSHOT_MAX_WIDTH = 480
+const SNAPSHOT_JPEG_QUALITY = 0.82
 
 interface MediaCardProps {
   file: MediaFile
@@ -20,8 +22,15 @@ export function MediaCard({ file, size, selected, onToggle, onPreview }: MediaCa
   const thumbRef = useRef<HTMLDivElement>(null)
   const releaseRef = useRef<(() => void) | null>(null)
   const [src, setSrc] = useState<string | null>(null)
+  const [snapshot, setSnapshot] = useState<string | null>(null)
   const [duration, setDuration] = useState<number | null>(null)
   const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    return () => {
+      if (snapshot) URL.revokeObjectURL(snapshot)
+    }
+  }, [snapshot])
 
   useEffect(() => {
     const target = thumbRef.current
@@ -54,6 +63,32 @@ export function MediaCard({ file, size, selected, onToggle, onPreview }: MediaCa
     releaseRef.current = null
   }
 
+  const snapshotVideo = (video: HTMLVideoElement) => {
+    setDuration(video.duration)
+    const scale = Math.min(1, SNAPSHOT_MAX_WIDTH / (video.videoWidth || SNAPSHOT_MAX_WIDTH))
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.round(video.videoWidth * scale)
+    canvas.height = Math.round(video.videoHeight * scale)
+    const context = canvas.getContext('2d')
+    if (!context || !canvas.width || !canvas.height) {
+      releaseSlot()
+      return
+    }
+    context.drawImage(video, 0, 0, canvas.width, canvas.height)
+    canvas.toBlob(
+      blob => {
+        if (blob) {
+          video.removeAttribute('src')
+          video.load()
+          setSnapshot(URL.createObjectURL(blob))
+        }
+        releaseSlot()
+      },
+      'image/jpeg',
+      SNAPSHOT_JPEG_QUALITY,
+    )
+  }
+
   const isVideo = file.kind !== 'photo'
   const meta = [file.time, size != null ? formatBytes(size) : '']
     .filter(Boolean)
@@ -62,17 +97,16 @@ export function MediaCard({ file, size, selected, onToggle, onPreview }: MediaCa
   return (
     <div className={selected ? 'card selected' : 'card'} onClick={onToggle}>
       <div className="thumb" ref={thumbRef}>
-        {src && !failed ? (
+        {snapshot ? (
+          <img src={snapshot} alt="" />
+        ) : src && !failed ? (
           isVideo ? (
             <video
               muted
               playsInline
               preload="metadata"
               src={src + PREVIEW_SEEK_FRAGMENT}
-              onLoadedData={e => {
-                setDuration(e.currentTarget.duration)
-                releaseSlot()
-              }}
+              onLoadedData={e => snapshotVideo(e.currentTarget)}
               onError={() => {
                 setFailed(true)
                 releaseSlot()
