@@ -135,7 +135,11 @@ class GoUltraClient:
         log.info("TCP connect -> %s:%s", self.host, self.port)
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(timeout)
-        sock.connect((self.host, self.port))
+        try:
+            sock.connect((self.host, self.port))
+        except OSError:
+            sock.close()
+            raise
         sock.settimeout(None)
         self.sock = sock
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
