@@ -6,6 +6,8 @@ A small local web app: a dependency-free Python backend speaks the camera's WiFi
 protocol, and a React UI gives you a date-grouped gallery with live previews,
 multi-select, and Finder-style download progress.
 
+![igut web UI showing a date-grouped media gallery with previews](docs/demo.webp)
+
 ## Install
 
 ```sh
