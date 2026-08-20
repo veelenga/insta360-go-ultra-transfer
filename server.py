@@ -9,21 +9,19 @@ import subprocess
 import sys
 import threading
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import go_ultra
 from go_ultra import GoUltraClient
+from transfer import CameraTransfer, download_file
 
 APP_DIR = Path(__file__).resolve().parent
 DIST_DIR = APP_DIR / "static" / "dist"
 UI_PORT = int(os.environ.get("GOULTRA_UI_PORT", "8765"))
 CAMERA_HTTP_PORT = int(os.environ.get("GOULTRA_HTTP_PORT", "80"))
 DEFAULT_DEST = str(Path.home() / "Downloads" / "GoUltra")
-HTTP_TIMEOUT = 25
 
 MEDIA_TYPES = {
     ".mp4": "video/mp4", ".lrv": "video/mp4", ".mov": "video/quicktime",
@@ -69,10 +67,9 @@ logging.getLogger().addHandler(logging.StreamHandler())
 log = logging.getLogger("server")
 
 client = GoUltraClient()
+transfer = CameraTransfer(client, CAMERA_HTTP_PORT)
 
 state_lock = threading.Lock()
-sizes = {}
-resolved = {}
 size_scan_running = False
 
 dl_lock = threading.Lock()
@@ -81,71 +78,6 @@ downloads = {
     "bytes_done": 0, "bytes_total": None, "speed": 0, "eta": None,
     "current": None, "dest": None, "done": [], "errors": [],
 }
-
-
-def http_url_candidates(uri):
-    path = uri if uri.startswith("/") else "/" + uri
-    candidates = [path]
-    if not path.startswith("/storage_internal"):
-        candidates.append("/storage_internal" + path)
-    else:
-        candidates.append(path[len("/storage_internal"):])
-    netloc = client.host if CAMERA_HTTP_PORT == 80 else f"{client.host}:{CAMERA_HTTP_PORT}"
-    return [f"http://{netloc}{urllib.parse.quote(p)}" for p in candidates]
-
-
-def open_camera(uri, headers=None, method="GET"):
-    with state_lock:
-        known = resolved.get(uri)
-    candidates = [known] if known else http_url_candidates(uri)
-    last_exc = None
-    for url in candidates:
-        req = urllib.request.Request(url, method=method)
-        for key, value in (headers or {}).items():
-            req.add_header(key, value)
-        try:
-            resp = urllib.request.urlopen(req, timeout=HTTP_TIMEOUT)
-            with state_lock:
-                resolved[uri] = url
-            return resp
-        except urllib.error.HTTPError as exc:
-            log.debug("HTTP %s %s %s", method, exc.code, url)
-            last_exc = exc
-        except OSError as exc:
-            log.debug("HTTP %s failed %s: %s", method, url, exc)
-            last_exc = exc
-    raise last_exc
-
-
-def get_size(uri):
-    with state_lock:
-        cached = sizes.get(uri)
-    if cached is not None:
-        return cached
-    size = None
-    try:
-        resp = open_camera(uri, method="HEAD")
-        length = resp.headers.get("Content-Length")
-        resp.close()
-        if length:
-            size = int(length)
-    except Exception:
-        pass
-    if size is None:
-        try:
-            resp = open_camera(uri, headers={"Range": "bytes=0-0"})
-            content_range = resp.headers.get("Content-Range", "")
-            resp.read()
-            resp.close()
-            if "/" in content_range:
-                size = int(content_range.rsplit("/", 1)[1])
-        except Exception as exc:
-            log.debug("size unavailable for %s: %s", uri, exc)
-            return None
-    if size is not None:
-        with state_lock:
-            sizes[uri] = size
-    return size
 
 
 def size_scan(uris):
@@ -157,32 +89,21 @@ def size_scan(uris):
             break
         while downloads["active"]:
             time.sleep(1)
-        if get_size(uri) is not None:
+        if transfer.get_size(uri) is not None:
             found += 1
     with state_lock:
         size_scan_running = False
     log.info("size scan finished: %d/%d sizes known", found, len(uris))
 
 
-def unique_path(dest_dir, name):
-    target = dest_dir / name
-    stem, suffix = target.stem, target.suffix
-    n = 1
-    while target.exists():
-        target = dest_dir / f"{stem} ({n}){suffix}"
-        n += 1
-    return target
-
-
 def download_worker(uris, dest):
     dest_dir = Path(dest).expanduser()
-    dest_dir.mkdir(parents=True, exist_ok=True)
     log.info("download batch: %d file(s) -> %s", len(uris), dest_dir)
 
     total = 0
     all_known = True
     for uri in uris:
-        size = get_size(uri)
+        size = transfer.get_size(uri)
         if size is None:
             all_known = False
         else:
@@ -194,38 +115,28 @@ def download_worker(uris, dest):
     started = time.time()
     for uri in uris:
         name = posixpath.basename(uri)
-        with state_lock:
-            expected = sizes.get(uri)
         with dl_lock:
-            downloads["current"] = {"name": name, "bytes": 0, "total": expected}
+            downloads["current"] = {"name": name, "bytes": 0,
+                                    "total": transfer.size_of(uri)}
         written = 0
+
+        def on_progress(done, _expected):
+            nonlocal written
+            written = done
+            elapsed = time.time() - started
+            with dl_lock:
+                downloads["current"]["bytes"] = done
+                downloads["bytes_done"] = completed + done
+                if elapsed > 0.5:
+                    speed = (completed + done) / elapsed
+                    downloads["speed"] = speed
+                    if downloads["bytes_total"] and speed > 0:
+                        remaining = downloads["bytes_total"] - completed - done
+                        downloads["eta"] = max(0, remaining / speed)
+
         try:
-            resp = open_camera(uri)
-            with state_lock:
-                url = resolved.get(uri)
-            log.info("downloading %s (HTTP %s, Content-Length=%s)",
-                     url, resp.status, resp.headers.get("Content-Length"))
-            target = unique_path(dest_dir, name)
             t0 = time.time()
-            with open(target, "wb") as out:
-                while True:
-                    chunk = resp.read(256 * 1024)
-                    if not chunk:
-                        break
-                    out.write(chunk)
-                    written += len(chunk)
-                    elapsed = time.time() - started
-                    with dl_lock:
-                        downloads["current"]["bytes"] = written
-                        downloads["bytes_done"] = completed + written
-                        if elapsed > 0.5:
-                            speed = (completed + written) / elapsed
-                            downloads["speed"] = speed
-                            if downloads["bytes_total"] and speed > 0:
-                                remaining = downloads["bytes_total"] - completed - written
-                                downloads["eta"] = max(0, remaining / speed)
-            if expected is not None and written != expected:
-                raise IOError(f"short read: {written}/{expected} bytes")
+            target, written = download_file(transfer, uri, dest_dir, on_progress)
             elapsed = time.time() - t0
             mbps = written / 1e6 / elapsed if elapsed > 0 else 0
             log.info("saved %s (%d bytes, %.1f MB/s)", target, written, mbps)
@@ -288,18 +199,16 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": str(exc)}, 502)
                 return
             with state_lock:
-                known = dict(sizes)
                 start_scan = not size_scan_running
                 if start_scan:
                     size_scan_running = True
             if start_scan:
                 threading.Thread(target=size_scan, args=(uris,), daemon=True).start()
-            self._json({"uris": uris, "total": total, "sizes": known})
+            self._json({"uris": uris, "total": total, "sizes": transfer.known_sizes()})
         elif path == "/api/sizes":
             with state_lock:
-                known = dict(sizes)
                 scanning = size_scan_running
-            self._json({"sizes": known, "scanning": scanning})
+            self._json({"sizes": transfer.known_sizes(), "scanning": scanning})
         elif path == "/api/media":
             self._serve_media(params)
         elif path == "/api/logs":
@@ -336,7 +245,7 @@ class Handler(BaseHTTPRequestHandler):
         if range_header:
             headers["Range"] = range_header
         try:
-            resp = open_camera(uri, headers or None)
+            resp = transfer.open(uri, headers or None)
         except Exception as exc:
             self._json({"error": str(exc)}, 502)
             return
@@ -409,9 +318,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "not found"}, 404)
 
 
-def main():
-    server = ThreadingHTTPServer(("127.0.0.1", UI_PORT), Handler)
-    log.info("GO Ultra transfer UI: http://127.0.0.1:%d", UI_PORT)
+def main(port=UI_PORT):
+    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    log.info("GO Ultra transfer UI: http://127.0.0.1:%d", port)
     log.info("log file: %s", LOG_PATH)
     try:
         server.serve_forever()
