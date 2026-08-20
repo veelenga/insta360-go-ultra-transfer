@@ -1,0 +1,97 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.package.outputs.version }}
+      sha256: ${{ steps.package.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build web UI
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+      - name: Package release tarball
+        id: package
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          NAME="insta360-go-ultra-transfer-${VERSION}"
+          mkdir -p "dist/${NAME}"
+          cp -R server.py go_ultra.py static README.md LICENSE "dist/${NAME}/"
+          tar -C dist -czf "${NAME}.tar.gz" "${NAME}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(sha256sum "${NAME}.tar.gz" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "insta360-go-ultra-transfer-${{ steps.package.outputs.version }}.tar.gz" \
+            --generate-notes
+
+  publish-tap:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update formula in homebrew-tap
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+          VERSION: ${{ needs.build.outputs.version }}
+          SHA256: ${{ needs.build.outputs.sha256 }}
+        run: |
+          if [ -z "$TAP_TOKEN" ]; then
+            echo "TAP_GITHUB_TOKEN secret is not set; skipping tap publish."
+            exit 0
+          fi
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/veelenga/homebrew-tap.git"
+          cd homebrew-tap
+          cat > igut.rb <<EOF
+          class Igut < Formula
+            desc "Browse, preview, and copy media from the Insta360 GO Ultra over WiFi"
+            homepage "https://github.com/veelenga/insta360-go-ultra-transfer"
+            url "https://github.com/veelenga/insta360-go-ultra-transfer/releases/download/v${VERSION}/insta360-go-ultra-transfer-${VERSION}.tar.gz"
+            sha256 "${SHA256}"
+            license "MIT"
+
+            depends_on "python@3.13"
+
+            def install
+              libexec.install "server.py", "go_ultra.py", "static"
+              (bin/"igut").write <<~SH
+                #!/bin/bash
+                exec "#{Formula["python@3.13"].opt_bin}/python3.13" "#{libexec}/server.py" "\$@"
+              SH
+            end
+
+            def caveats
+              <<~TEXT
+                Connect to the camera's WiFi hotspot, run:
+                  igut
+                then open http://127.0.0.1:8765
+              TEXT
+            end
+
+            test do
+              assert_path_exists libexec/"server.py"
+            end
+          end
+          EOF
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add igut.rb
+          git commit -m "igut ${VERSION}"
+          git push
