@@ -59,14 +59,19 @@ def connected_client(host):
 
 def cmd_ls(args):
     client = connected_client(args.host)
+    transfer = CameraTransfer(client, args.http_port)
     try:
         entries = fetch_entries(client, args.lrv, args.day)
+        name_width = max((len(e.name) for e in entries), default=0)
+        total_bytes = 0
         for date in sorted({e.date for e in entries}, reverse=True):
             print(date)
             for entry in sorted((e for e in entries if e.date == date),
                                 key=lambda e: e.name):
-                print(f"  {entry.name}")
-        print(f"{len(entries)} file(s)", file=sys.stderr)
+                size = transfer.get_size(entry.uri)
+                total_bytes += size or 0
+                print(f"  {entry.name:<{name_width}}  {format_bytes(size):>8}")
+        print(f"{len(entries)} file(s), {format_bytes(total_bytes)}", file=sys.stderr)
     finally:
         client.close()
     return 0
