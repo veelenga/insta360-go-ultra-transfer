@@ -47,6 +47,7 @@ export const api = {
   files: () => request<FileListing>('/api/files'),
   sizes: () => request<{ sizes: Record<string, number>; scanning: boolean }>('/api/sizes'),
   download: (uris: string[], dest: string) => request('/api/download', { uris, dest }),
+  openFolder: (path: string) => request('/api/open-folder', { path }),
   logs: (since: number) => request<{ cursor: number; lines: string[] }>(`/api/logs?since=${since}`),
 }
 

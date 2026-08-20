@@ -5,6 +5,7 @@ import { CloseIcon } from '../icons'
 interface ProgressStripProps {
   downloads: DownloadState
   onDismiss: () => void
+  onOpenFolder: () => void
 }
 
 function progressText(d: DownloadState): { text: string; percent: number } {
@@ -31,7 +32,7 @@ function progressText(d: DownloadState): { text: string; percent: number } {
   return { text, percent: 100 }
 }
 
-export function ProgressStrip({ downloads, onDismiss }: ProgressStripProps) {
+export function ProgressStrip({ downloads, onDismiss, onOpenFolder }: ProgressStripProps) {
   const { text, percent } = progressText(downloads)
   return (
     <div className={downloads.active ? 'progress-strip' : 'progress-strip finished'}>
@@ -40,9 +41,16 @@ export function ProgressStrip({ downloads, onDismiss }: ProgressStripProps) {
           {text}
         </span>
         {!downloads.active && (
-          <button className="icon-btn small" aria-label="Dismiss" onClick={onDismiss}>
-            <CloseIcon size={12} />
-          </button>
+          <span className="progress-actions">
+            {downloads.dest && (
+              <button className="link" onClick={onOpenFolder}>
+                Open folder
+              </button>
+            )}
+            <button className="icon-btn small" aria-label="Dismiss" onClick={onDismiss}>
+              <CloseIcon size={12} />
+            </button>
+          </span>
         )}
       </div>
       <div className="progress-track">

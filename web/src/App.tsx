@@ -153,7 +153,11 @@ export default function App() {
         onToggleSettings={() => setSettingsOpen(open => !open)}
       />
       {showProgress && downloads && (
-        <ProgressStrip downloads={downloads} onDismiss={() => setProgressDismissed(true)} />
+        <ProgressStrip
+          downloads={downloads}
+          onDismiss={() => setProgressDismissed(true)}
+          onOpenFolder={() => api.openFolder(downloads.dest ?? '').catch(() => {})}
+        />
       )}
       {settingsOpen && (
         <Settings

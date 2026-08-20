@@ -5,6 +5,8 @@ import logging
 import mimetypes
 import os
 import posixpath
+import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -361,6 +363,18 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": str(exc)}, 502)
         elif self.path == "/api/disconnect":
             client.close()
+            self._json({"ok": True})
+        elif self.path == "/api/open-folder":
+            folder = Path(self._body().get("path") or DEFAULT_DEST).expanduser()
+            if not folder.is_dir():
+                self._json({"error": f"folder does not exist: {folder}"}, 400)
+                return
+            if sys.platform == "darwin":
+                subprocess.Popen(["open", str(folder)])
+            elif os.name == "nt":
+                os.startfile(folder)
+            else:
+                subprocess.Popen(["xdg-open", str(folder)])
             self._json({"ok": True})
         elif self.path == "/api/download":
             body = self._body()
