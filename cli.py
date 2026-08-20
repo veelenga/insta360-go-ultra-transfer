@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import errno
 import fnmatch
 import logging
 import posixpath
@@ -195,7 +196,11 @@ def main():
         return 130
     except (OSError, TimeoutError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
-        print("Are you connected to the camera's WiFi hotspot?", file=sys.stderr)
+        if getattr(exc, "errno", None) == errno.EADDRINUSE:
+            print("Is igut server already running? Pass --port to use another port.",
+                  file=sys.stderr)
+        elif args.command != "server":
+            print("Are you connected to the camera's WiFi hotspot?", file=sys.stderr)
         return 1
 
 
