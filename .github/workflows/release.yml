@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26
           cache: npm
           cache-dependency-path: web/package-lock.json
       - name: Build web UI
@@ -31,7 +31,7 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           NAME="insta360-go-ultra-transfer-${VERSION}"
           mkdir -p "dist/${NAME}"
-          cp -R server.py go_ultra.py static README.md LICENSE "dist/${NAME}/"
+          cp -R cli.py server.py go_ultra.py transfer.py static README.md LICENSE "dist/${NAME}/"
           tar -C dist -czf "${NAME}.tar.gz" "${NAME}"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "sha256=$(sha256sum "${NAME}.tar.gz" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
@@ -70,23 +70,24 @@ jobs:
             depends_on "python@3.13"
 
             def install
-              libexec.install "server.py", "go_ultra.py", "static"
+              libexec.install "cli.py", "server.py", "go_ultra.py", "transfer.py", "static"
               (bin/"igut").write <<~SH
                 #!/bin/bash
-                exec "#{Formula["python@3.13"].opt_bin}/python3.13" "#{libexec}/server.py" "\$@"
+                exec "#{Formula["python@3.13"].opt_bin}/python3.13" "#{libexec}/cli.py" "\$@"
               SH
             end
 
             def caveats
               <<~TEXT
-                Connect to the camera's WiFi hotspot, run:
-                  igut
-                then open http://127.0.0.1:8765
+                Connect to the camera's WiFi hotspot, then:
+                  igut server        # web UI at http://127.0.0.1:8765
+                  igut ls            # list files on the camera
+                  igut download ...  # copy files to a local folder
               TEXT
             end
 
             test do
-              assert_path_exists libexec/"server.py"
+              assert_match "igut", shell_output("#{bin}/igut --help")
             end
           end
           EOF
