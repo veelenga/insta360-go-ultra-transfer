@@ -6,31 +6,38 @@ A small local web app: a dependency-free Python backend speaks the camera's WiFi
 protocol, and a React UI gives you a date-grouped gallery with live previews,
 multi-select, and Finder-style download progress.
 
+## Install
+
+```sh
+brew install veelenga/tap/igut
+```
+
 ## Usage
+
+1. Connect your computer to the camera's WiFi hotspot (`GO Ultra XXXXXX.OSC`).
+2. Run `igut` and open http://127.0.0.1:8765, then press Connect.
+3. Select files and press Download. They land in `~/Downloads/GoUltra` by default.
+
+## From source
+
+Requires Python 3.10+ and Node 20+ (only to build the UI once):
 
 ```sh
 git clone https://github.com/veelenga/insta360-go-ultra-transfer.git
-cd insta360-go-ultra-transfer
-python3 server.py
+cd insta360-go-ultra-transfer/web
+npm install && npm run build
+cd .. && python3 server.py
 ```
 
-1. Connect your computer to the camera's WiFi hotspot (`GO Ultra XXXXXX.OSC`).
-2. Open http://127.0.0.1:8765 and press Connect.
-3. Select files and press Download. They land in `~/Downloads/GoUltra` by default.
+For UI development, `npm run dev` starts a Vite dev server that proxies
+`/api` to `server.py` on port 8765.
 
-Requires Python 3.10+. The prebuilt UI is committed, so no other tools are
-needed to run it.
+## Releasing
 
-### Developing the UI
-
-The frontend lives in `web/` (Vite + React + TypeScript):
-
-```sh
-cd web
-npm install
-npm run dev     # dev server with API proxy to :8765
-npm run build   # rebuild static/dist served by server.py
-```
+Pushing a `v*` tag builds the UI, packages a tarball, creates the GitHub
+release, and updates the formula in
+[veelenga/homebrew-tap](https://github.com/veelenga/homebrew-tap)
+(requires the `TAP_GITHUB_TOKEN` repo secret).
 
 ## Diagnostics
 
