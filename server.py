@@ -50,9 +50,19 @@ class RingLogHandler(logging.Handler):
             return [(n, line) for n, line in self.records if n > cursor]
 
 
+def default_log_path():
+    override = os.environ.get("GOULTRA_LOG")
+    if override:
+        return Path(override).expanduser()
+    if os.access(APP_DIR, os.W_OK):
+        return APP_DIR / "go-ultra.log"
+    return Path.home() / ".go-ultra.log"
+
+
+LOG_PATH = default_log_path()
 ring = RingLogHandler()
 ring.setFormatter(logging.Formatter("%(asctime)s %(levelname)-7s %(message)s", "%H:%M:%S"))
-file_handler = logging.FileHandler(APP_DIR / "go-ultra.log")
+file_handler = logging.FileHandler(LOG_PATH)
 file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)-7s %(message)s"))
 logging.basicConfig(level=logging.DEBUG, handlers=[ring, file_handler])
 logging.getLogger().addHandler(logging.StreamHandler())
@@ -402,7 +412,7 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     server = ThreadingHTTPServer(("127.0.0.1", UI_PORT), Handler)
     log.info("GO Ultra transfer UI: http://127.0.0.1:%d", UI_PORT)
-    log.info("log file: %s", APP_DIR / "go-ultra.log")
+    log.info("log file: %s", LOG_PATH)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
