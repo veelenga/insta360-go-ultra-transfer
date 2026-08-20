@@ -14,9 +14,19 @@ brew install veelenga/tap/igut
 
 ## Usage
 
-1. Connect your computer to the camera's WiFi hotspot (`GO Ultra XXXXXX.OSC`).
-2. Run `igut` and open http://127.0.0.1:8765, then press Connect.
-3. Select files and press Download. They land in `~/Downloads/GoUltra` by default.
+Connect your computer to the camera's WiFi hotspot (`GO Ultra XXXXXX.OSC`), then:
+
+```sh
+igut server                     # web UI at http://127.0.0.1:8765
+igut ls                         # list files on the camera
+igut ls --day 2026-08-20        # one day only
+igut download "VID_20260820*"   # copy by glob
+igut download --day 2026-08-20  # copy a whole day
+igut download --all -o ~/rides  # copy everything
+```
+
+Downloads land in `~/Downloads/GoUltra` unless `-o` says otherwise. LRV proxy
+files are skipped by default; add `--lrv` to include them.
 
 ## From source
 
