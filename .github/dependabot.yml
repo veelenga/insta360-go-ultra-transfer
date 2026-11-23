@@ -1,0 +1,25 @@
+version: 2
+
+multi-ecosystem-groups:
+  dependencies:
+    schedule:
+      interval: monthly
+
+updates:
+  - package-ecosystem: npm
+    directory: /web
+    patterns: ["*"]
+    multi-ecosystem-group: dependencies
+    groups:
+      npm-security:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    patterns: ["*"]
+    multi-ecosystem-group: dependencies
+    groups:
+      actions-security:
+        applies-to: security-updates
+        patterns: ["*"]
